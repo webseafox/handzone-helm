@@ -17,8 +17,6 @@ concurrency:
   group: argocd-${{ github.workflow }}-${{ github.ref }}-${{ inputs.app || env.APP }}
   cancel-in-progress: false
 
-
-  
 jobs:
   build-and-deploy:
     runs-on: [self-hosted, wsl]
