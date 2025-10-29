@@ -18,10 +18,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup .NET
+      - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet
         with:
-          dotnet-version: "8.0.x"
+          dotnet-version: '8.0.x'
+
+      - name: Export DOTNET vars
+        run: |
+          echo "DOTNET_ROOT=${{ github.workspace }}/.dotnet" >> $GITHUB_ENV
+          echo "${{ github.workspace }}/.dotnet" >> $GITHUB_PATH
 
       - name: Build .NET
         working-directory: app/HelloApi
