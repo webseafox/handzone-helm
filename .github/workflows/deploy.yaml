@@ -59,6 +59,7 @@ jobs:
           docker push ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
 
       - name: ArgoCD login (CLI)
+        continue-on-error: true
         run: |
           argocd login ${{ secrets.ARGOCD_SERVER }} \
             --username ${{ secrets.ARGOCD_USERNAME }} \
