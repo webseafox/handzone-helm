@@ -12,6 +12,13 @@ permissions:
   contents: read
   packages: write
 
+
+# Impede deploys concorrentes no MESMO app (no mesmo runner)
+concurrency:
+  group: deploy-helloapi-hmg
+  cancel-in-progress: false
+  
+  
 jobs:
   build-and-deploy:
     runs-on: [self-hosted, wsl]
