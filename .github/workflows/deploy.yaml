@@ -21,14 +21,15 @@ jobs:
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         env:
-          DOTNET_INSTALL_DIR: ${{ github.workspace }}/.dotnet
+            DOTNET_INSTALL_DIR: ${{ runner.temp }}/.dotnet   # único por job
         with:
-          dotnet-version: '8.0.x'
+            dotnet-version: '8.0.x'
+            cache: true
 
       - name: Export DOTNET vars
         run: |
-          echo "DOTNET_ROOT=${{ github.workspace }}/.dotnet" >> $GITHUB_ENV
-          echo "${{ github.workspace }}/.dotnet" >> $GITHUB_PATH
+            echo "DOTNET_ROOT=${{ runner.temp }}/.dotnet" >> $GITHUB_ENV
+            echo "${{ runner.temp }}/.dotnet" >> $GITHUB_PATH
 
       - name: Build .NET
         working-directory: app/HelloApi
