@@ -66,6 +66,7 @@ jobs:
             --grpc-web --insecure
 
       - name: Set image tag + sync
+        continue-on-error: true
         run: |
           APP="helloapi-${{ github.event.inputs.env }}"
           argocd app set "$APP" -p image.tag=${{ steps.vars.outputs.tag }} --grpc-web
