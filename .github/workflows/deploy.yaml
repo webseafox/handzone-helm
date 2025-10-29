@@ -12,12 +12,12 @@ permissions:
   contents: read
   packages: write
 
-
-# Impede deploys concorrentes no MESMO app (no mesmo runner)
+# No topo do workflow
 concurrency:
-  group: deploy-helloapi-hmg
+  group: argocd-${{ github.workflow }}-${{ github.ref }}-${{ inputs.app || env.APP }}
   cancel-in-progress: false
-  
+
+
   
 jobs:
   build-and-deploy:
@@ -72,9 +72,52 @@ jobs:
             --password ${{ secrets.ARGOCD_PASSWORD }} \
             --grpc-web --insecure
 
-      - name: Set image tag + sync
+    #   - name: Set image tag + sync
+    #     run: |
+    #       APP="helloapi-${{ github.event.inputs.env }}"
+    #       argocd app set "$APP" -p image.tag=${{ steps.vars.outputs.tag }} --grpc-web
+    #       argocd app sync "$APP" --grpc-web
+    #       argocd app wait "$APP" --health --timeout 300 --grpc-web
+
+      - name: Deploy with Argo CD
+        env:
+            APP: helloapi-prd
+            TAG: prd-7d6caee
+        shell: bash
         run: |
-          APP="helloapi-${{ github.event.inputs.env }}"
-          argocd app set "$APP" -p image.tag=${{ steps.vars.outputs.tag }} --grpc-web
-          argocd app sync "$APP" --grpc-web
-          argocd app wait "$APP" --health --timeout 300 --grpc-web
+            set -euo pipefail
+
+            echo "Checando operações pendentes em $APP..."
+            # Se houver operação em andamento, aguarda (não falha se tempo expirar)
+            argocd app wait "$APP" --operation --timeout 900 --grpc-web || true
+
+            echo "Definindo image.tag=$TAG"
+            argocd app set "$APP" -p image.tag="$TAG" --grpc-web
+
+            echo "Verificando se Auto-Sync está habilitado..."
+            if argocd app get "$APP" --grpc-web | grep -q "Auto-Sync: Enabled"; then
+            echo "Auto-Sync habilitado. Aguardando a operação do controller..."
+            argocd app wait "$APP" --operation --timeout 900 --grpc-web
+            else
+            echo "Auto-Sync desabilitado. Disparando sync manual com retry..."
+            retries=5
+            for i in $(seq 1 $retries); do
+                if argocd app sync "$APP" --grpc-web --timeout 900; then
+                break
+                fi
+                echo "Sync falhou (possível operação em andamento). Tentativa $i/$retries."
+                argocd app wait "$APP" --operation --timeout 600 --grpc-web || true
+                sleep 10
+                if [ "$i" -eq "$retries" ]; then
+                echo "Falhou após $retries tentativas."
+                exit 1
+                fi
+            done
+            fi
+
+            echo "Aguardando ficar Healthy..."
+            argocd app wait "$APP" --health --timeout 900 --grpc-web
+
+        echo "OK ✅"
+
+                
