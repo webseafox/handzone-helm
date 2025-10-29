@@ -11,12 +11,17 @@ on:
 permissions:
   contents: read
   packages: write
+  # se usar OIDC/AWS futuramente:
+  # id-token: write
 
 jobs:
   build-and-deploy:
+    # O runner precisa ter os labels que você configurou no WSL (ex.: "wsl,k3d")
     runs-on: [self-hosted, wsl]
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -26,6 +31,7 @@ jobs:
       - name: Build .NET
         working-directory: app/HelloApi
         run: |
+          set -e
           dotnet restore
           dotnet publish -c Release -o out
 
@@ -35,31 +41,87 @@ jobs:
       - name: Define tags
         id: vars
         run: |
+          set -e
           IMAGE="ghcr.io/${{ github.repository }}/helloapi"
           SHORT_SHA="${GITHUB_SHA::7}"
           case "${{ github.event.inputs.env }}" in
             dev|hmg|prd) TAG="${{ github.event.inputs.env }}-${SHORT_SHA}" ;;
-            *) echo "Env inválido"; exit 1 ;;
+            *) echo "Env inválido (use dev|hmg|prd)"; exit 1 ;;
           esac
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "TAG definido: ${TAG}"
 
       - name: Docker build & push
         working-directory: app/HelloApi
         run: |
+          set -e
           docker build -t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }} .
           docker push ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
 
+      # ===== ArgoCD prechecks + port-forward automático =====
+
+      - name: Precheck kubectl / ArgoCD server
+        run: |
+          set -e
+          kubectl version --client=true
+          echo "Contexto atual: $(kubectl config current-context)"
+          echo "Esperando argocd-server ficar Available..."
+          kubectl -n argocd wait --for=condition=available deploy/argocd-server --timeout=120s
+          echo "Pods do ArgoCD:"
+          kubectl -n argocd get pods -o wide
+
+      - name: Port-forward argocd-server (background)
+        run: |
+          # encerra fwd antigos (se houver) e ignora erro se não existir
+          pkill -f "kubectl -n argocd port-forward svc/argocd-server 8080:443" || true
+          # sobe o port-forward em background
+          nohup kubectl -n argocd port-forward svc/argocd-server 8080:443 >/dev/null 2>&1 &
+          # aguarda a porta 8080 ficar ouvindo
+          for i in {1..30}; do
+            (echo > /dev/tcp/127.0.0.1/8080) >/dev/null 2>&1 && echo "Porta 8080 OK" && break
+            echo "Aguardando porta 8080..."
+            sleep 1
+          done
+          # teste rápido da UI (UI é HTTPS no 8080 via fwd)
+          curl -kI https://localhost:8080 | head -n1 || true
+
+      - name: Sanity check ArgoCD endpoint (gRPC-web)
+        run: |
+          # se o servidor não responder, falha cedo
+          timeout 20s argocd version --server localhost:8080 --grpc-web --insecure
+
       - name: ArgoCD login (CLI)
         run: |
-          argocd login ${{ secrets.ARGOCD_SERVER }} \
-            --username ${{ secrets.ARGOCD_USERNAME }} \
-            --password ${{ secrets.ARGOCD_PASSWORD }} \
-            --grpc-web --insecure
+          set -e
+          if [ -n "${{ secrets.ARGOCD_TOKEN }}" ]; then
+            echo "Login via token"
+            argocd login ${{ secrets.ARGOCD_SERVER }} \
+              --auth-token ${{ secrets.ARGOCD_TOKEN }} \
+              --grpc-web --insecure
+          else
+            echo "Login via usuário/senha"
+            argocd login ${{ secrets.ARGOCD_SERVER }} \
+              --username ${{ secrets.ARGOCD_USERNAME }} \
+              --password ${{ secrets.ARGOCD_PASSWORD }} \
+              --grpc-web --insecure
+          fi
+          argocd account get-user-info --grpc-web || true
 
       - name: Set image tag + sync
+        env:
+          APP: helloapi-${{ github.event.inputs.env }}
+          NEW_TAG: ${{ steps.vars.outputs.tag }}
         run: |
-          APP="helloapi-${{ github.event.inputs.env }}"
-          argocd app set "$APP" -p image.tag=${{ steps.vars.outputs.tag }} --grpc-web
+          set -e
+          echo "Atualizando $APP para tag $NEW_TAG"
+          argocd app set "$APP" -p image.tag="$NEW_TAG" --grpc-web
           argocd app sync "$APP" --grpc-web
           argocd app wait "$APP" --health --timeout 300 --grpc-web
+          echo "Status final:"
+          argocd app get "$APP" --grpc-web
+
+      - name: Cleanup port-forward
+        if: always()
+        run: |
+          pkill -f "kubectl -n argocd port-forward svc/argocd-server 8080:443" || true
