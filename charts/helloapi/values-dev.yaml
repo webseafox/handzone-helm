@@ -1,8 +1,6 @@
-replicaCount: 2
+replicaCount: 3
 image:
   tag: "dev"
 
 
-service:
-  type: ClusterIP
-  port: 8088
+
