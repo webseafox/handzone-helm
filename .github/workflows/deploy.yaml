@@ -1,0 +1,65 @@
+name: Build & Deploy (manual por ambiente)
+
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Ambiente (dev|hmg|prd)"
+        required: true
+        default: "dev"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: [self-hosted, wsl]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build .NET
+        working-directory: app/HelloApi
+        run: |
+          dotnet restore
+          dotnet publish -c Release -o out
+
+      - name: Login GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Define tags
+        id: vars
+        run: |
+          IMAGE="ghcr.io/${{ github.repository }}/helloapi"
+          SHORT_SHA="${GITHUB_SHA::7}"
+          case "${{ github.event.inputs.env }}" in
+            dev|hmg|prd) TAG="${{ github.event.inputs.env }}-${SHORT_SHA}" ;;
+            *) echo "Env inválido"; exit 1 ;;
+          esac
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Docker build & push
+        working-directory: app/HelloApi
+        run: |
+          docker build -t ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }} .
+          docker push ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
+
+      - name: ArgoCD login (CLI)
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            --grpc-web --insecure
+
+      - name: Set image tag + sync
+        run: |
+          APP="helloapi-${{ github.event.inputs.env }}"
+          argocd app set "$APP" -p image.tag=${{ steps.vars.outputs.tag }} --grpc-web
+          argocd app sync "$APP" --grpc-web
+          argocd app wait "$APP" --health --timeout 300 --grpc-web
