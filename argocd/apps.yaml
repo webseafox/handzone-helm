@@ -1,0 +1,65 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: helloapi-dev
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/webseafox/handzone-helm.git
+    targetRevision: main
+    path: charts/helloapi
+    helm:
+      valueFiles:
+        - values-dev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: helloapi-hmg
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/webseafox/handzone-helm.git
+    targetRevision: main
+    path: charts/helloapi
+    helm:
+      valueFiles:
+        - values-hmg.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hmg
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: helloapi-prd
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/webseafox/handzone-helm.git
+    targetRevision: main
+    path: charts/helloapi
+    helm:
+      valueFiles:
+        - values-prd.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
