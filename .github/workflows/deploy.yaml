@@ -21,10 +21,10 @@ jobs:
       - name: Setup .NET 8
         uses: actions/setup-dotnet@v4
         env:
-            DOTNET_INSTALL_DIR: ${{ runner.temp }}/.dotnet   # único por job
+            DOTNET_INSTALL_DIR: ${{ runner.temp }}/.dotnet   # pasta única por job
         with:
             dotnet-version: '8.0.x'
-            cache: true
+            cache: false
 
       - name: Export DOTNET vars
         run: |
